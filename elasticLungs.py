@@ -13,63 +13,23 @@ import os
 import shutil
 import pathlib
 import trimesh
-
-
-### UNIT SYSTEM #########
-# Length - mm
-# Mass - gm
-# Time - sec
-# Pressure - Pa or mm of H20 1Pa ~ 1 mm of H20
-
-#### PHYSIOLOGICAL PARAMETERS (WORKING) #######
-LUNG_MASS = 700. #gm
-PRESSURE_AMP = 1.5 * 10 # Pressure variation in cm H20 to mm H20  (or equivalent Pa)
-BREATHING_TIME = 5.0 #sec
-
-######## MODEL PARAMETERS #################
-# === VORONOI PARAMETERS ===
-NUM_POINTS = 1400.
-NUM_NEIGHBORS = 6
-
-### SIMULATION PARAMETERS 
-dt = 0.01
-noofCycles = 20
-omega = (2.0 * np.pi) / BREATHING_TIME
-
-steps = int(noofCycles*BREATHING_TIME/dt)
-mass = LUNG_MASS / NUM_POINTS
-
-k_spring = 0.1 * 0.1 #gm/sec2
-k_spring_interlobar = 0.1 * 0.1 #gm/sec2
-damping = 0.9 #g/s
-
-writeInterval = 25
-####################################
-
-outputDataFolder = f'/home/manash/DATA/SIMONE/COLLAB/2024/LUNG_NEW_MODEL_FULL/ELASTIC MODEL/OUTPUT6'
-#outputDataFolder = f'/home/manash/DATA/SIMONE/COLLAB/2024/LUNG_NEW_MODEL_FULL/ELASTIC MODEL/PARAMETRIC/OUTPUT_mass/{mass}'
-
-### LOBES ACTIVE ###
-LL = True
-LU = True
-RL = True
-RM = True
-RU = True
-
-folder = pathlib.Path(outputDataFolder)
-if not folder.exists():
-    folder.mkdir(parents=True, exist_ok=True)
-    print(f"Created new folder: {folder}")
-else:
-    for item in folder.iterdir():
-        if item.is_dir():
-            shutil.rmtree(item)  
-        else:
-            item.unlink()  
-    print(f"Deleted previous folder contents")
+import params
 
 
 
+############################################################
+def manageDataFolder():
+    folder = pathlib.Path(params.outputDataFolder)
+    if not folder.exists():
+        folder.mkdir(parents=True, exist_ok=True)
+        print(f"Created new folder: {folder}")
+    else:
+        for item in folder.iterdir():
+            if item.is_dir():
+                shutil.rmtree(item)  
+            else:
+                item.unlink()  
+        print(f"Deleted previous folder contents")
 
 
 ###########################################################
@@ -366,7 +326,7 @@ def stlVolume(stl_path):
 
 def calcPg(volumes):
     #Pg = (n * R * T) / np.mean(np.array(volumes))
-    Pg = PRESSURE_AMP
+    Pg = params.PRESSURE_AMP
     print (f'Pg : {Pg}')
     return Pg
 
@@ -379,18 +339,18 @@ def calcSpringForce(positions, G, alpha, P_gas_curr, forces):
             continue
         direction = delta / dist
         r_eq = alpha[(i, j)]  * P_gas_curr
-        F = k_spring * (dist - r_eq) * direction
+        F = params.k_spring * (dist - r_eq) * direction
         forces[i] += F
         forces[j] -= F
     return forces
 
 def calcDamperForces(velocities, forces):
-    forces -= damping * velocities
+    forces -= params.damping * velocities
     return forces
 
 def calcPressureWaveForm(Pg, time):
     #Pg_curr = ((Pg * (1. + np.sin(omega*time)) + Pp)) - (Pg + Pp)   
-    Pg_curr = Pg * (0.0 + np.sin(omega*time - (np.pi/2.0)) )
+    Pg_curr = Pg * (0.0 + np.sin(params.omega*time - (np.pi/2.0)) )
     return Pg_curr
 
 def calcAlpha(G, positions, P = 1.0):
@@ -408,13 +368,13 @@ def anchorPoints(forces, velocities, index_point):
 
 def updateVelHalf(velocities, forces, dt):
     # Integration: Verlet half step
-    velocities += 0.5 * (forces / mass) * dt
+    velocities += 0.5 * (forces / params.mass) * dt
 
     return velocities
 
 def updateVelPos(positions, velocities, forces, dt):
     # Integration
-    velocities += (forces / mass) * dt
+    velocities += (forces / params.mass) * dt
     positions += velocities * dt
 
     return positions, velocities
@@ -422,7 +382,7 @@ def updateVelPos(positions, velocities, forces, dt):
 def updateVelPosHalf(positions, velocities, forces, dt):
     # Integration: Verlet half step for position and velocity
     positions += velocities * dt
-    velocities += 0.5 * (forces / mass) * dt
+    velocities += 0.5 * (forces / params.mass) * dt
 
     return positions, velocities
 
@@ -481,7 +441,7 @@ def calcInterLobarForce(G, alpha_interlobar, A_points, B_points, pairs, P_gas_cu
         direction = delta / dist
         #r_eq = alpha_interlobar[(i, j)]  * P_gas_curr
         r_eq = alpha_interlobar[(i, j)] * 1.0
-        F = k_spring_interlobar * (dist - r_eq) * direction
+        F = params.k_spring_interlobar * (dist - r_eq) * direction
         forcesA[i] += F
         forcesB[j] -= F
     return forcesA, forcesB
@@ -503,7 +463,7 @@ def compute_metrics(points):
     return volume, rms
 
 def write_metric(volArr, rmsArr, output):
-    timeArr = np.arange(0,steps, dt)
+    timeArr = np.arange(0,params.steps, params.dt)
     f = open(output,'w')
     for i in range(len(volArr)):
         f.write(f'{timeArr[i]},{volArr[i]},{rmsArr[i]}'+'\n')
@@ -512,271 +472,279 @@ def write_metric(volArr, rmsArr, output):
 
 ################### START MAIN PART ################################################
 
-llVol = 0.0
-luVol = 0.0
-rlVol = 0.0
-rmVol = 0.0
-ruVol = 0.0
+def simulate():
+    manageDataFolder()
 
-if LL:
-    INPUT_MESH_FILE_LL = '/home/manash/DATA/SIMONE/COLLAB/2024/LUNG_NEW_MODEL_FULL/ELASTIC MODEL/STLs/LL.stl'  
-    llVol = stlVolume(INPUT_MESH_FILE_LL)
-if LU:
-    INPUT_MESH_FILE_LU = '/home/manash/DATA/SIMONE/COLLAB/2024/LUNG_NEW_MODEL_FULL/ELASTIC MODEL/STLs/LU.stl'
-    luVol = stlVolume(INPUT_MESH_FILE_LU)
-if RL:
-    INPUT_MESH_FILE_RL = '/home/manash/DATA/SIMONE/COLLAB/2024/LUNG_NEW_MODEL_FULL/ELASTIC MODEL/STLs/RL.stl' 
-    rlVol = stlVolume(INPUT_MESH_FILE_RL)
-if RM:
-    INPUT_MESH_FILE_RM = '/home/manash/DATA/SIMONE/COLLAB/2024/LUNG_NEW_MODEL_FULL/ELASTIC MODEL/STLs/RM.stl'  
-    rmVol = stlVolume(INPUT_MESH_FILE_RM)
-if RU:
-    INPUT_MESH_FILE_RU = '/home/manash/DATA/SIMONE/COLLAB/2024/LUNG_NEW_MODEL_FULL/ELASTIC MODEL/STLs/RU.stl'  
-    ruVol = stlVolume(INPUT_MESH_FILE_RU)
+    llVol = 0.0
+    luVol = 0.0
+    rlVol = 0.0
+    rmVol = 0.0
+    ruVol = 0.0
 
-totalVolume = llVol + luVol + rlVol + rmVol + ruVol
-percentll = llVol / totalVolume
-percentlu = luVol / totalVolume
-percentrl = rlVol / totalVolume
-percentrm = rmVol / totalVolume
-percentru = ruVol / totalVolume
+    if params.LL:
+        INPUT_MESH_FILE_LL = '/home/manash/DATA/SIMONE/COLLAB/2024/LUNG_NEW_MODEL_FULL/ELASTIC MODEL/STLs/LL.stl'  
+        llVol = stlVolume(INPUT_MESH_FILE_LL)
+    if params.LU:
+        INPUT_MESH_FILE_LU = '/home/manash/DATA/SIMONE/COLLAB/2024/LUNG_NEW_MODEL_FULL/ELASTIC MODEL/STLs/LU.stl'
+        luVol = stlVolume(INPUT_MESH_FILE_LU)
+    if params.RL:
+        INPUT_MESH_FILE_RL = '/home/manash/DATA/SIMONE/COLLAB/2024/LUNG_NEW_MODEL_FULL/ELASTIC MODEL/STLs/RL.stl' 
+        rlVol = stlVolume(INPUT_MESH_FILE_RL)
+    if params.RM:
+        INPUT_MESH_FILE_RM = '/home/manash/DATA/SIMONE/COLLAB/2024/LUNG_NEW_MODEL_FULL/ELASTIC MODEL/STLs/RM.stl'  
+        rmVol = stlVolume(INPUT_MESH_FILE_RM)
+    if params.RU:
+        INPUT_MESH_FILE_RU = '/home/manash/DATA/SIMONE/COLLAB/2024/LUNG_NEW_MODEL_FULL/ELASTIC MODEL/STLs/RU.stl'  
+        ruVol = stlVolume(INPUT_MESH_FILE_RU)
 
-print (f'STL volumes : {llVol}, {luVol}, {rlVol}, {rmVol}, {ruVol}')
+    totalVolume = llVol + luVol + rlVol + rmVol + ruVol
+    percentll = llVol / totalVolume
+    percentlu = luVol / totalVolume
+    percentrl = rlVol / totalVolume
+    percentrm = rmVol / totalVolume
+    percentru = ruVol / totalVolume
 
-
-## LL ##
-if LL:
-    print ('Computing for Lobe LL')
-    meshLL, GLL, pointsLL, indicesLL, volumesLL = constructPoints(INPUT_MESH_FILE_LL, int(NUM_POINTS*percentll), NUM_NEIGHBORS)
-    outputFileNameLL =  os.path.join(outputDataFolder, 'LL')
-
-## LU ##
-if LU:
-    print ('Computing for Lobe LU')
-    meshLU, GLU, pointsLU, indicesLU, volumesLU = constructPoints(INPUT_MESH_FILE_LU, int(NUM_POINTS*percentlu), NUM_NEIGHBORS)
-    outputFileNameLU = os.path.join(outputDataFolder, 'LU')
-
-## RL ##
-if RL:  
-    print ('Computing for Lobe RL')
-    meshRL, GRL, pointsRL, indicesRL, volumesRL = constructPoints(INPUT_MESH_FILE_RL, int(NUM_POINTS*percentrl), NUM_NEIGHBORS)
-    outputFileNameRL = os.path.join(outputDataFolder, 'RL')
-
-## RM ##
-if RM: 
-    print ('Computing for Lobe RM')
-    meshRM, GRM, pointsRM, indicesRM, volumesRM = constructPoints(INPUT_MESH_FILE_RM, int(NUM_POINTS*percentrm), NUM_NEIGHBORS)
-    outputFileNameRM = os.path.join(outputDataFolder, 'RM')
-
-## RU ##
-if RU: 
-    print ('Computing for Lobe RU')
-    meshRU, GRU, pointsRU, indicesRU, volumesRU = constructPoints(INPUT_MESH_FILE_RU, int(NUM_POINTS*percentru), NUM_NEIGHBORS)
-    outputFileNameRU = os.path.join(outputDataFolder, 'RU')
+    print (f'STL volumes : {llVol}, {luVol}, {rlVol}, {rmVol}, {ruVol}')
 
 
+    ## LL ##
+    if params.LL:
+        print ('Computing for Lobe LL')
+        meshLL, GLL, pointsLL, indicesLL, volumesLL = constructPoints(INPUT_MESH_FILE_LL, int(params.NUM_POINTS*percentll), params.NUM_NEIGHBORS)
+        outputFileNameLL =  os.path.join(params.outputDataFolder, 'LL')
 
+    ## LU ##
+    if params.LU:
+        print ('Computing for Lobe LU')
+        meshLU, GLU, pointsLU, indicesLU, volumesLU = constructPoints(INPUT_MESH_FILE_LU, int(params.NUM_POINTS*percentlu), params.NUM_NEIGHBORS)
+        outputFileNameLU = os.path.join(params.outputDataFolder, 'LU')
 
-######### INTERLOBAR GRAPH INITIALIZE ############
-## Left Upper-Lower pair
-if LU and LL:
-    G_interLobar_LeftLU, indLL_LeftLU, indLU_LeftLU, pairs_LeftLU = create_filtered_graph(pointsLL, pointsLU, cutoff=15)
-    alpha_interlobar_LeftLU = calcInterLobarAlpha(G_interLobar_LeftLU,pointsLL, pointsLU, pairs_LeftLU)
-    outputFileNameInterLobar_LeftLU = os.path.join(outputDataFolder, 'Inter_LeftLU')
+    ## RL ##
+    if params.RL:  
+        print ('Computing for Lobe RL')
+        meshRL, GRL, pointsRL, indicesRL, volumesRL = constructPoints(INPUT_MESH_FILE_RL, int(params.NUM_POINTS*percentrl), params.NUM_NEIGHBORS)
+        outputFileNameRL = os.path.join(params.outputDataFolder, 'RL')
 
-## Right Upper-Middle pair
-if RU and RM:
-    G_interLobar_RightUM, indRU_RightUM, indRM_RightUM, pairs_RightUM = create_filtered_graph(pointsRU, pointsRM, cutoff=15)
-    alpha_interlobar_RightUM = calcInterLobarAlpha(G_interLobar_RightUM,pointsRU, pointsRM, pairs_RightUM)
-    outputFileNameInterLobar_RightUM = os.path.join(outputDataFolder, 'Inter_RightUM') 
+    ## RM ##
+    if params.RM: 
+        print ('Computing for Lobe RM')
+        meshRM, GRM, pointsRM, indicesRM, volumesRM = constructPoints(INPUT_MESH_FILE_RM, int(params.NUM_POINTS*percentrm), params.NUM_NEIGHBORS)
+        outputFileNameRM = os.path.join(params.outputDataFolder, 'RM')
 
-## Right Middle-Lower pair
-if RM and RL:
-    G_interLobar_RightML, indRM_RightML, indRL_RightML, pairs_RightML = create_filtered_graph(pointsRM, pointsRL, cutoff=15)
-    alpha_interlobar_RightML = calcInterLobarAlpha(G_interLobar_RightML,pointsRM, pointsRL, pairs_RightML)
-    outputFileNameInterLobar_RightML = os.path.join(outputDataFolder, 'Inter_RightML')
-
-
-########  TIME LOOP ###########
-
-######## Lobe LL ########
-if LL:
-    PgLL = calcPg(volumesLL)
-    positionsLL = pointsLL.copy()
-    velocitiesLL = np.zeros_like(positionsLL)
-    inlet_indexLL = np.argmax(positionsLL[:, 2])  ### Highest x point
-    alphaLL = calcAlpha(GLL, positionsLL,P=1.0)
-
-    volumesLL = []
-    rms_valuesLL = []
-
-
-######## Lobe LU ########
-if LU:
-    PgLU = calcPg(volumesLU)
-    positionsLU = pointsLU.copy()
-    velocitiesLU = np.zeros_like(positionsLU)
-    inlet_indexLU = np.argmax(positionsLU[:, 2])  ### Highest x point
-    alphaLU = calcAlpha(GLU, positionsLU,P=1.0)
-
-    volumesLU = []
-    rms_valuesLU = []
-
-
-######## Lobe RL ########
-if RL:
-    PgRL = calcPg(volumesRL)
-    positionsRL = pointsRL.copy()
-    velocitiesRL = np.zeros_like(positionsRL)
-    inlet_indexRL = np.argmax(positionsRL[:, 2])  ### Highest x point
-    alphaRL = calcAlpha(GRL, positionsRL)
-
-    volumesRL = []
-    rms_valuesRL = []
-
-######## Lobe RM ########
-if RM:
-    PgRM = calcPg(volumesRM)
-    positionsRM = pointsRM.copy()
-    velocitiesRM = np.zeros_like(positionsRM)
-    inlet_indexRM = np.argmax(positionsRM[:, 2])  ### Highest x point
-    alphaRM = calcAlpha(GRM, positionsRM)
-
-    volumesRM = []
-    rms_valuesRM = []
-
-
-######## Lobe RU ########
-if RU:
-    PgRU = calcPg(volumesRU)
-    positionsRU = pointsRU.copy()
-    velocitiesRU = np.zeros_like(positionsRU)
-    inlet_indexRU = np.argmax(positionsRU[:, 2])  ### Highest x point
-    alphaRU = calcAlpha(GRU, positionsRU)
-
-    volumesRU = []
-    rms_valuesRU = []
+    ## RU ##
+    if params.RU: 
+        print ('Computing for Lobe RU')
+        meshRU, GRU, pointsRU, indicesRU, volumesRU = constructPoints(INPUT_MESH_FILE_RU, int(params.NUM_POINTS*percentru), params.NUM_NEIGHBORS)
+        outputFileNameRU = os.path.join(params.outputDataFolder, 'RU')
 
 
 
-time = 0.0
-for step in range(steps):
-    print (f'Step : {step} , Time : {time}')
 
-    ####### SAVE OUTPUT ############
-    if LL and step%writeInterval == 0: save_enclosing_surface(positionsLL,step, outputFileNameLL)
-    if LU and step%writeInterval == 0: save_enclosing_surface(positionsLU,step, outputFileNameLU)
-    if RL and step%writeInterval == 0: save_enclosing_surface(positionsRL,step, outputFileNameRL)
-    if RM and step%writeInterval == 0: save_enclosing_surface(positionsRM,step, outputFileNameRM)
-    if RU and step%writeInterval == 0: save_enclosing_surface(positionsRU,step, outputFileNameRU)
+    ######### INTERLOBAR GRAPH INITIALIZE ############
+    ## Left Upper-Lower pair
+    if params.LU and params.LL:
+        G_interLobar_LeftLU, indLL_LeftLU, indLU_LeftLU, pairs_LeftLU = create_filtered_graph(pointsLL, pointsLU, cutoff=15)
+        alpha_interlobar_LeftLU = calcInterLobarAlpha(G_interLobar_LeftLU,pointsLL, pointsLU, pairs_LeftLU)
+        outputFileNameInterLobar_LeftLU = os.path.join(params.outputDataFolder, 'Inter_LeftLU')
 
+    ## Right Upper-Middle pair
+    if params.RU and params.RM:
+        G_interLobar_RightUM, indRU_RightUM, indRM_RightUM, pairs_RightUM = create_filtered_graph(pointsRU, pointsRM, cutoff=15)
+        alpha_interlobar_RightUM = calcInterLobarAlpha(G_interLobar_RightUM,pointsRU, pointsRM, pairs_RightUM)
+        outputFileNameInterLobar_RightUM = os.path.join(params.outputDataFolder, 'Inter_RightUM') 
 
-    if LL and step%writeInterval == 0: save_to_vtk(positionsLL,velocitiesLL,step, outputFileNameLL)
-    if LU and step%writeInterval == 0: save_to_vtk(positionsLU,velocitiesLU,step, outputFileNameLU)
-    if RL and step%writeInterval == 0: save_to_vtk(positionsRL,velocitiesRL,step, outputFileNameRL)
-    if RM and step%writeInterval == 0: save_to_vtk(positionsRM,velocitiesRM,step, outputFileNameRM)
-    if RU and step%writeInterval == 0: save_to_vtk(positionsRU,velocitiesRU,step, outputFileNameRU)
-
-
-    #if LL and LU: saveInterLobar_to_vtk2(G_interLobar_LeftLU, positionsLL, positionsLU, indLL_LeftLU, indLU_LeftLU, step,outputFileNameInterLobar_LeftLU)
-    #if RU and RM: saveInterLobar_to_vtk2(G_interLobar_RightUM, positionsRU, positionsRM, indRU_RightUM, indRM_RightUM, step,outputFileNameInterLobar_RightUM)
-    #if RM and RL: saveInterLobar_to_vtk2(G_interLobar_RightML, positionsRM, positionsRL, indRM_RightML, indRL_RightML, step,outputFileNameInterLobar_RightML)
-
-    ######## COMPUTE METRICS #########
-    if LL and step%writeInterval == 0:
-        volume, rms = compute_metrics(positionsLL)
-        volumesLL.append(volume)
-        rms_valuesLL.append(rms)
-
-    if LU and step%writeInterval == 0:
-        volume, rms = compute_metrics(positionsLU)
-        volumesLU.append(volume)
-        rms_valuesLU.append(rms)
-
-    if RL and step%writeInterval == 0:
-        volume, rms = compute_metrics(positionsRL)
-        volumesRL.append(volume)
-        rms_valuesRL.append(rms)
-
-    if RM and step%writeInterval == 0:
-        volume, rms = compute_metrics(positionsRM)
-        volumesRM.append(volume)
-        rms_valuesRM.append(rms)
-    
-    if RU and step%writeInterval == 0:
-        volume, rms = compute_metrics(positionsRU)
-        volumesRU.append(volume)
-        rms_valuesRU.append(rms)
+    ## Right Middle-Lower pair
+    if params.RM and params.RL:
+        G_interLobar_RightML, indRM_RightML, indRL_RightML, pairs_RightML = create_filtered_graph(pointsRM, pointsRL, cutoff=15)
+        alpha_interlobar_RightML = calcInterLobarAlpha(G_interLobar_RightML,pointsRM, pointsRL, pairs_RightML)
+        outputFileNameInterLobar_RightML = os.path.join(params.outputDataFolder, 'Inter_RightML')
 
 
-    ### INITIALIZE FORCES ###
-    if LL: forcesLL = np.zeros_like(positionsLL)
-    if LU: forcesLU = np.zeros_like(positionsLU)
-    if RL: forcesRL = np.zeros_like(positionsRL)
-    if RM: forcesRM = np.zeros_like(positionsRM)
-    if RL: forcesRU = np.zeros_like(positionsRU)
+    ########  TIME LOOP ###########
+
+    ######## Lobe LL ########
+    if params.LL:
+        PgLL = calcPg(volumesLL)
+        positionsLL = pointsLL.copy()
+        velocitiesLL = np.zeros_like(positionsLL)
+        inlet_indexLL = np.argmax(positionsLL[:, 2])  ### Highest x point
+        alphaLL = calcAlpha(GLL, positionsLL,P=1.0)
+
+        volumesLL = []
+        rms_valuesLL = []
 
 
-    time = time + dt
+    ######## Lobe LU ########
+    if params.LU:
+        PgLU = calcPg(volumesLU)
+        positionsLU = pointsLU.copy()
+        velocitiesLU = np.zeros_like(positionsLU)
+        inlet_indexLU = np.argmax(positionsLU[:, 2])  ### Highest x point
+        alphaLU = calcAlpha(GLU, positionsLU,P=1.0)
 
-    if LL: P_gas_currLL = calcPressureWaveForm(PgLL, time)  
-    if LU: P_gas_currLU = calcPressureWaveForm(PgLU, time)  
-    if RL: P_gas_currRL = calcPressureWaveForm(PgRL, time)  
-    if RM: P_gas_currRM = calcPressureWaveForm(PgRM, time) 
-    if RU: P_gas_currRU = calcPressureWaveForm(PgRU, time)  
-
-    ### Half step Update #######
-    if LL: velocitiesLL = updateVelHalf(velocitiesLL, forcesLL, dt)
-    if LU: velocitiesLU = updateVelHalf(velocitiesLU, forcesLU, dt)
-    if RL: velocitiesRL = updateVelHalf(velocitiesRL, forcesRL, dt)
-    if RM: velocitiesRM = updateVelHalf(velocitiesRM, forcesRM, dt)
-    if RU: velocitiesRU = updateVelHalf(velocitiesRU, forcesRU, dt)
-
-    ########## SPRING FORCE #########
-    if LL: forcesLL = calcSpringForce(positionsLL, GLL, alphaLL, P_gas_currLL, forcesLL)
-    if LU: forcesLU = calcSpringForce(positionsLU, GLU, alphaLU, P_gas_currLU, forcesLU)
-    if RL: forcesRL = calcSpringForce(positionsRL, GRL, alphaRL, P_gas_currRL, forcesRL)
-    if RM: forcesRM = calcSpringForce(positionsRM, GRM, alphaRM, P_gas_currRM, forcesRM)
-    if RU: forcesRU = calcSpringForce(positionsRU, GRU, alphaRU, P_gas_currRU, forcesRU)
-
-    # Damping
-    if LL: forcesLL = calcDamperForces(velocitiesLL, forcesLL)
-    if LU: forcesLU = calcDamperForces(velocitiesLU, forcesLU)
-    if RL: forcesRL = calcDamperForces(velocitiesRL, forcesRL)
-    if RM: forcesRM = calcDamperForces(velocitiesRM, forcesRM)
-    if RU: forcesRU = calcDamperForces(velocitiesRU, forcesRU)
-
-    ## INTERLOBAR FORCE ###
-    if LL and LU: forcesLL, forcesLU = calcInterLobarForce(G_interLobar_LeftLU, alpha_interlobar_LeftLU, positionsLL, positionsLU, pairs_LeftLU, PgLU, forcesLL, forcesLU)  ## P gas taken for the LU lobe  ##Left UL
-    if RM and RU: forcesRU, forcesRM = calcInterLobarForce(G_interLobar_RightUM, alpha_interlobar_RightUM, positionsRU, positionsRM, pairs_RightUM, PgRU, forcesRU, forcesRM)  ## P gas taken for the RU lobe  ##Right UM
-    if RM and RL: forcesRM, forcesRL = calcInterLobarForce(G_interLobar_RightML, alpha_interlobar_RightML, positionsRM, positionsRL, pairs_RightML, PgRL, forcesRM, forcesRL)  ## P gas taken for the RL lobe  ##Right ML
-
-    # Anchor inlet point
-    if LL: forcesLL, velocitiesLL = anchorPoints(forcesLL, velocitiesLL, inlet_indexLL)
-    if LU: forcesLU, velocitiesLU = anchorPoints(forcesLU, velocitiesLU, inlet_indexLU)
-    if RL: forcesRL, velocitiesRL = anchorPoints(forcesRL, velocitiesRL, inlet_indexRL)
-    if RM: forcesRM, velocitiesRM = anchorPoints(forcesRM, velocitiesRM, inlet_indexRM)
-    if RU: forcesRU, velocitiesRU = anchorPoints(forcesRU, velocitiesRU, inlet_indexRU)
-
-    ### Update #######
-    # if LL: positionsLL, velocitiesLL = updateVelPos(positionsLL, velocitiesLL, forcesLL, dt)
-    # if LU: positionsLU, velocitiesLU = updateVelPos(positionsLU, velocitiesLU, forcesLU, dt)
-    # if RL: positionsRL, velocitiesRL = updateVelPos(positionsRL, velocitiesRL, forcesRL, dt)
-    # if RM: positionsRM, velocitiesRM = updateVelPos(positionsRM, velocitiesRM, forcesRM, dt)
-    # if RU: positionsRU, velocitiesRU = updateVelPos(positionsRU, velocitiesRU, forcesRU, dt)
-
-    if LL: positionsLL, velocitiesLL = updateVelPosHalf(positionsLL, velocitiesLL, forcesLL, dt)
-    if LU: positionsLU, velocitiesLU = updateVelPosHalf(positionsLU, velocitiesLU, forcesLU, dt)
-    if RL: positionsRL, velocitiesRL = updateVelPosHalf(positionsRL, velocitiesRL, forcesRL, dt)
-    if RM: positionsRM, velocitiesRM = updateVelPosHalf(positionsRM, velocitiesRM, forcesRM, dt)
-    if RU: positionsRU, velocitiesRU = updateVelPosHalf(positionsRU, velocitiesRU, forcesRU, dt)
-
-print (f'Time loop complete - steps : {step}')
+        volumesLU = []
+        rms_valuesLU = []
 
 
-#### WRITING THE METRICS ###
-if LL: write_metric(volumesLL, rms_valuesLL, os.path.join(outputDataFolder,'metricLL.csv'))
-if LU: write_metric(volumesLU, rms_valuesLU, os.path.join(outputDataFolder,'metricLU.csv'))
-if RL: write_metric(volumesRL, rms_valuesRL, os.path.join(outputDataFolder,'metricRL.csv'))
-if RM: write_metric(volumesRM, rms_valuesRM, os.path.join(outputDataFolder,'metricRM.csv'))
-if RU: write_metric(volumesRU, rms_valuesRU, os.path.join(outputDataFolder,'metricRU.csv'))
+    ######## Lobe RL ########
+    if params.RL:
+        PgRL = calcPg(volumesRL)
+        positionsRL = pointsRL.copy()
+        velocitiesRL = np.zeros_like(positionsRL)
+        inlet_indexRL = np.argmax(positionsRL[:, 2])  ### Highest x point
+        alphaRL = calcAlpha(GRL, positionsRL)
+
+        volumesRL = []
+        rms_valuesRL = []
+
+    ######## Lobe RM ########
+    if params.RM:
+        PgRM = calcPg(volumesRM)
+        positionsRM = pointsRM.copy()
+        velocitiesRM = np.zeros_like(positionsRM)
+        inlet_indexRM = np.argmax(positionsRM[:, 2])  ### Highest x point
+        alphaRM = calcAlpha(GRM, positionsRM)
+
+        volumesRM = []
+        rms_valuesRM = []
+
+
+    ######## Lobe RU ########
+    if params.RU:
+        PgRU = calcPg(volumesRU)
+        positionsRU = pointsRU.copy()
+        velocitiesRU = np.zeros_like(positionsRU)
+        inlet_indexRU = np.argmax(positionsRU[:, 2])  ### Highest x point
+        alphaRU = calcAlpha(GRU, positionsRU)
+
+        volumesRU = []
+        rms_valuesRU = []
+
+
+
+    time = 0.0
+    for step in range(params.steps):
+        print (f'Step : {step} , Time : {time}')
+
+        ####### SAVE OUTPUT ############
+        if params.LL and step%params.writeInterval == 0: save_enclosing_surface(positionsLL,step, outputFileNameLL)
+        if params.LU and step%params.writeInterval == 0: save_enclosing_surface(positionsLU,step, outputFileNameLU)
+        if params.RL and step%params.writeInterval == 0: save_enclosing_surface(positionsRL,step, outputFileNameRL)
+        if params.RM and step%params.writeInterval == 0: save_enclosing_surface(positionsRM,step, outputFileNameRM)
+        if params.RU and step%params.writeInterval == 0: save_enclosing_surface(positionsRU,step, outputFileNameRU)
+
+
+        if params.LL and step%params.writeInterval == 0: save_to_vtk(positionsLL,velocitiesLL,step, outputFileNameLL)
+        if params.LU and step%params.writeInterval == 0: save_to_vtk(positionsLU,velocitiesLU,step, outputFileNameLU)
+        if params.RL and step%params.writeInterval == 0: save_to_vtk(positionsRL,velocitiesRL,step, outputFileNameRL)
+        if params.RM and step%params.writeInterval == 0: save_to_vtk(positionsRM,velocitiesRM,step, outputFileNameRM)
+        if params.RU and step%params.writeInterval == 0: save_to_vtk(positionsRU,velocitiesRU,step, outputFileNameRU)
+
+
+        #if LL and LU: saveInterLobar_to_vtk2(G_interLobar_LeftLU, positionsLL, positionsLU, indLL_LeftLU, indLU_LeftLU, step,outputFileNameInterLobar_LeftLU)
+        #if RU and RM: saveInterLobar_to_vtk2(G_interLobar_RightUM, positionsRU, positionsRM, indRU_RightUM, indRM_RightUM, step,outputFileNameInterLobar_RightUM)
+        #if RM and RL: saveInterLobar_to_vtk2(G_interLobar_RightML, positionsRM, positionsRL, indRM_RightML, indRL_RightML, step,outputFileNameInterLobar_RightML)
+
+        ######## COMPUTE METRICS #########
+        if params.LL and step%params.writeInterval == 0:
+            volume, rms = compute_metrics(positionsLL)
+            volumesLL.append(volume)
+            rms_valuesLL.append(rms)
+
+        if params.LU and step%params.writeInterval == 0:
+            volume, rms = compute_metrics(positionsLU)
+            volumesLU.append(volume)
+            rms_valuesLU.append(rms)
+
+        if params.RL and step%params.writeInterval == 0:
+            volume, rms = compute_metrics(positionsRL)
+            volumesRL.append(volume)
+            rms_valuesRL.append(rms)
+
+        if params.RM and step%params.writeInterval == 0:
+            volume, rms = compute_metrics(positionsRM)
+            volumesRM.append(volume)
+            rms_valuesRM.append(rms)
+        
+        if params.RU and step%params.writeInterval == 0:
+            volume, rms = compute_metrics(positionsRU)
+            volumesRU.append(volume)
+            rms_valuesRU.append(rms)
+
+
+        ### INITIALIZE FORCES ###
+        if params.LL: forcesLL = np.zeros_like(positionsLL)
+        if params.LU: forcesLU = np.zeros_like(positionsLU)
+        if params.RL: forcesRL = np.zeros_like(positionsRL)
+        if params.RM: forcesRM = np.zeros_like(positionsRM)
+        if params.RL: forcesRU = np.zeros_like(positionsRU)
+
+
+        time = time + params.dt
+
+        if params.LL: P_gas_currLL = calcPressureWaveForm(PgLL, time)  
+        if params.LU: P_gas_currLU = calcPressureWaveForm(PgLU, time)  
+        if params.RL: P_gas_currRL = calcPressureWaveForm(PgRL, time)  
+        if params.RM: P_gas_currRM = calcPressureWaveForm(PgRM, time) 
+        if params.RU: P_gas_currRU = calcPressureWaveForm(PgRU, time)  
+
+        ### Half step Update #######
+        if params.LL: velocitiesLL = updateVelHalf(velocitiesLL, forcesLL, params.dt)
+        if params.LU: velocitiesLU = updateVelHalf(velocitiesLU, forcesLU, params.dt)
+        if params.RL: velocitiesRL = updateVelHalf(velocitiesRL, forcesRL, params.dt)
+        if params.RM: velocitiesRM = updateVelHalf(velocitiesRM, forcesRM, params.dt)
+        if params.RU: velocitiesRU = updateVelHalf(velocitiesRU, forcesRU, params.dt)
+
+        ########## SPRING FORCE #########
+        if params.LL: forcesLL = calcSpringForce(positionsLL, GLL, alphaLL, P_gas_currLL, forcesLL)
+        if params.LU: forcesLU = calcSpringForce(positionsLU, GLU, alphaLU, P_gas_currLU, forcesLU)
+        if params.RL: forcesRL = calcSpringForce(positionsRL, GRL, alphaRL, P_gas_currRL, forcesRL)
+        if params.RM: forcesRM = calcSpringForce(positionsRM, GRM, alphaRM, P_gas_currRM, forcesRM)
+        if params.RU: forcesRU = calcSpringForce(positionsRU, GRU, alphaRU, P_gas_currRU, forcesRU)
+
+        # Damping
+        if params.LL: forcesLL = calcDamperForces(velocitiesLL, forcesLL)
+        if params.LU: forcesLU = calcDamperForces(velocitiesLU, forcesLU)
+        if params.RL: forcesRL = calcDamperForces(velocitiesRL, forcesRL)
+        if params.RM: forcesRM = calcDamperForces(velocitiesRM, forcesRM)
+        if params.RU: forcesRU = calcDamperForces(velocitiesRU, forcesRU)
+
+        ## INTERLOBAR FORCE ###
+        if params.LL and params.LU: forcesLL, forcesLU = calcInterLobarForce(G_interLobar_LeftLU, alpha_interlobar_LeftLU, positionsLL, positionsLU, pairs_LeftLU, PgLU, forcesLL, forcesLU)  ## P gas taken for the LU lobe  ##Left UL
+        if params.RM and params.RU: forcesRU, forcesRM = calcInterLobarForce(G_interLobar_RightUM, alpha_interlobar_RightUM, positionsRU, positionsRM, pairs_RightUM, PgRU, forcesRU, forcesRM)  ## P gas taken for the RU lobe  ##Right UM
+        if params.RM and params.RL: forcesRM, forcesRL = calcInterLobarForce(G_interLobar_RightML, alpha_interlobar_RightML, positionsRM, positionsRL, pairs_RightML, PgRL, forcesRM, forcesRL)  ## P gas taken for the RL lobe  ##Right ML
+
+        # Anchor inlet point
+        if params.LL: forcesLL, velocitiesLL = anchorPoints(forcesLL, velocitiesLL, inlet_indexLL)
+        if params.LU: forcesLU, velocitiesLU = anchorPoints(forcesLU, velocitiesLU, inlet_indexLU)
+        if params.RL: forcesRL, velocitiesRL = anchorPoints(forcesRL, velocitiesRL, inlet_indexRL)
+        if params.RM: forcesRM, velocitiesRM = anchorPoints(forcesRM, velocitiesRM, inlet_indexRM)
+        if params.RU: forcesRU, velocitiesRU = anchorPoints(forcesRU, velocitiesRU, inlet_indexRU)
+
+        ### Update #######
+        # if LL: positionsLL, velocitiesLL = updateVelPos(positionsLL, velocitiesLL, forcesLL, dt)
+        # if LU: positionsLU, velocitiesLU = updateVelPos(positionsLU, velocitiesLU, forcesLU, dt)
+        # if RL: positionsRL, velocitiesRL = updateVelPos(positionsRL, velocitiesRL, forcesRL, dt)
+        # if RM: positionsRM, velocitiesRM = updateVelPos(positionsRM, velocitiesRM, forcesRM, dt)
+        # if RU: positionsRU, velocitiesRU = updateVelPos(positionsRU, velocitiesRU, forcesRU, dt)
+
+        if params.LL: positionsLL, velocitiesLL = updateVelPosHalf(positionsLL, velocitiesLL, forcesLL, params.dt)
+        if params.LU: positionsLU, velocitiesLU = updateVelPosHalf(positionsLU, velocitiesLU, forcesLU, params.dt)
+        if params.RL: positionsRL, velocitiesRL = updateVelPosHalf(positionsRL, velocitiesRL, forcesRL, params.dt)
+        if params.RM: positionsRM, velocitiesRM = updateVelPosHalf(positionsRM, velocitiesRM, forcesRM, params.dt)
+        if params.RU: positionsRU, velocitiesRU = updateVelPosHalf(positionsRU, velocitiesRU, forcesRU, params.dt)
+
+    print (f'Time loop complete - steps : {step}')
+
+
+    #### WRITING THE METRICS ###
+    if params.LL: write_metric(volumesLL, rms_valuesLL, os.path.join(params.outputDataFolder,'metricLL.csv'))
+    if params.LU: write_metric(volumesLU, rms_valuesLU, os.path.join(params.outputDataFolder,'metricLU.csv'))
+    if params.RL: write_metric(volumesRL, rms_valuesRL, os.path.join(params.outputDataFolder,'metricRL.csv'))
+    if params.RM: write_metric(volumesRM, rms_valuesRM, os.path.join(params.outputDataFolder,'metricRM.csv'))
+    if params.RU: write_metric(volumesRU, rms_valuesRU, os.path.join(params.outputDataFolder,'metricRU.csv'))
+
+
+
+if __name__=="__main__":
+    simulate()
